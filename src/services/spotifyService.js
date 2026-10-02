@@ -543,20 +543,38 @@ export async function fetchTracks(token, features, source = 'recommended', count
   // 1. Direct from Saved Library ("In My Library")
   if (source === 'liked' || source === 'library') {
     const liked = await getLikedTracks(token);
-    if (!liked.length) return { tracks: [], aiMeta: null };
+    const genreLabel = (features.genres && features.genres[0]) ? features.genres[0] : 'this vibe';
 
-    // STRICT QUALITY & ACOUSTIC FEATURE FILTERING: Keep only tracks passing Spotify audio metrics
+    if (!liked.length) {
+      const fallbackRes = await fetchTracks(token, features, 'catalog', count, userPrompt, options);
+      return {
+        tracks: fallbackRes.tracks || [],
+        aiMeta: fallbackRes.aiMeta || null,
+        isFallback: true,
+        notice: `Not found in your saved library. Here are songs you might like related to ${genreLabel}:`,
+        genreName: genreLabel,
+      };
+    }
+
     const qualityLiked = liked.filter(t => isHighQualityTrack(t, userPrompt, excludedArtists));
     const candidates = qualityLiked.length > 0 ? qualityLiked : liked;
     const acousticallyMatched = await filterAndRankByAcousticVectors(token, candidates, features, userPrompt);
 
     if (acousticallyMatched.length === 0) {
-      return { tracks: [], aiMeta: null };
+      const fallbackRes = await fetchTracks(token, features, 'catalog', count, userPrompt, options);
+      return {
+        tracks: fallbackRes.tracks || [],
+        aiMeta: fallbackRes.aiMeta || null,
+        isFallback: true,
+        notice: `Not found in your library for "${userPrompt}". Here are songs you might like related to ${genreLabel}:`,
+        genreName: genreLabel,
+      };
     }
 
     return {
       tracks: acousticallyMatched.slice(0, count),
-      aiMeta: null
+      aiMeta: null,
+      isFallback: false,
     };
   }
 

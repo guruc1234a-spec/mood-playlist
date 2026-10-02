@@ -19,6 +19,9 @@ function Player({ token, onLogout }) {
   const [sessionHistory, setSessionHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fallbackNotice, setFallbackNotice] = useState('');
+  const [isFallbackMode, setIsFallbackMode] = useState(false);
+  const [fallbackGenre, setFallbackGenre] = useState('');
 
   const [user, setUser] = useState(null);
   const [hasAiKey, setHasAiKey] = useState(!!getGeminiApiKey());
@@ -52,6 +55,9 @@ function Player({ token, onLogout }) {
 
     setLoading(true);
     setError('');
+    setFallbackNotice('');
+    setIsFallbackMode(false);
+    setFallbackGenre('');
     setQueueMsg('');
     setAiMeta(null);
 
@@ -74,6 +80,10 @@ function Player({ token, onLogout }) {
 
       const results = res.tracks || [];
       setTracks(results);
+
+      if (res.notice) setFallbackNotice(res.notice);
+      if (res.isFallback) setIsFallbackMode(true);
+      if (res.genreName) setFallbackGenre(res.genreName);
 
       // Record titles in session history to prevent future repetition
       const newTitles = results.map(t => `${t.name} by ${t.artists?.[0]?.name}`).filter(Boolean);
@@ -393,6 +403,16 @@ function Player({ token, onLogout }) {
 
         {error && <div className="toast toast-error">{error}</div>}
 
+        {fallbackNotice && (
+          <div className="notice-banner">
+            <span className="notice-icon">⚠️</span>
+            <div className="notice-text">
+              <strong>Not Found in Library</strong>
+              <p>{fallbackNotice}</p>
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="tracks-skeleton-list">
             {[1, 2, 3, 4, 5].map(n => <div key={n} className="track-skeleton" />)}
@@ -403,9 +423,15 @@ function Player({ token, onLogout }) {
           <section className="results-section">
             <div className="results-header">
               <h2>
-                {source === 'recommended' && '✨ Recommended for You'}
-                {source === 'liked' && '💚 From Your Library'}
-                {source === 'catalog' && '🌐 Global Match'} ({tracks.length} Tracks)
+                {isFallbackMode ? (
+                  `🎶 Songs You Might Like (Related to ${fallbackGenre || 'this vibe'})`
+                ) : (
+                  <>
+                    {source === 'recommended' && '✨ Recommended for You'}
+                    {source === 'liked' && '💚 From Your Library'}
+                    {source === 'catalog' && '🌐 Global Match'} ({tracks.length} Tracks)
+                  </>
+                )}
               </h2>
               <div className="results-actions">
                 <button
