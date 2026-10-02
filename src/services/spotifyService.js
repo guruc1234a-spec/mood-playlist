@@ -340,13 +340,13 @@ async function filterAndRankByAcousticVectors(token, tracks, targetFeatures, use
     if (af) {
       // Hard acoustic bounds enforcement
       if (isParty) {
-        if (af.energy < 0.60 || af.danceability < 0.60 || af.acousticness > 0.40) return null; // reject slow/acoustic tracks for party
+        if (af.energy < 0.50 || af.danceability < 0.50) return null; // reject slow/acoustic tracks for party
       }
       if (isAdhdOrAmbient) {
-        if (af.energy > 0.40 || af.danceability > 0.50 || (af.instrumentalness !== undefined && af.instrumentalness < 0.35)) return null; // reject high energy / party / heavy vocal tracks for ADHD study
+        if (af.energy > 0.45 || af.danceability > 0.55) return null; // reject high energy / party / heavy vocal tracks for ADHD study
       }
       if (isSad) {
-        if (af.energy > 0.65 || af.valence > 0.65) return null; // reject high energy / happy tracks for sad mood
+        if (af.energy > 0.70 || af.valence > 0.70) return null; // reject high energy / happy tracks for sad mood
       }
 
       // Compute Vector Similarity Score
@@ -364,6 +364,23 @@ async function filterAndRankByAcousticVectors(token, tracks, targetFeatures, use
 
     return { track, similarityScore };
   }).filter(Boolean);
+
+  if (scoredTracks.length === 0 && tracks.length > 0) {
+    // Soft fallback: rank all candidate tracks by distance without discarding
+    const fallbackScored = tracks.map(track => {
+      const af = audioMap.get(track.id);
+      let similarityScore = 0.5;
+      if (af) {
+        const deltaV = Math.pow(af.valence - (targetFeatures.valence ?? 0.5), 2);
+        const deltaE = Math.pow(af.energy - (targetFeatures.energy ?? 0.5), 2);
+        const distance = Math.sqrt(deltaV + deltaE);
+        similarityScore = Math.max(0, 1 - distance);
+      }
+      return { track, similarityScore };
+    });
+    fallbackScored.sort((a, b) => b.similarityScore - a.similarityScore);
+    return fallbackScored.map(st => st.track);
+  }
 
   scoredTracks.sort((a, b) => b.similarityScore - a.similarityScore);
   return scoredTracks.map(st => st.track);
