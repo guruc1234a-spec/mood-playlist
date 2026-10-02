@@ -118,6 +118,8 @@ export async function getCurrentUser(token) {
   }
 }
 
+let lastApiError = null;
+
 export async function getLikedTracks(token) {
   try {
     const res = await axios.get('https://api.spotify.com/v1/me/tracks', {
@@ -126,6 +128,7 @@ export async function getLikedTracks(token) {
     });
     return (res.data.items || []).map(i => i.track).filter(Boolean);
   } catch (e) {
+    if (e.response?.status === 403) lastApiError = 403;
     console.warn('Could not fetch liked tracks:', e);
     return [];
   }
