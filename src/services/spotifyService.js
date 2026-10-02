@@ -495,10 +495,11 @@ export async function getUserLibraryTaste(token) {
 }
 
 // Search Spotify for specific songs recommended by AI
-export async function searchSpotifyForAiTracks(token, aiSongs = [], excludedArtists = []) {
+export async function searchSpotifyForAiTracks(token, aiSongs = [], excludedArtists = [], userPrompt = '') {
   const trackPromises = aiSongs.map(async (song) => {
     try {
-      const query = `track:"${song.title}" artist:"${song.artist}"`;
+      const cleanTitle = (song.title || '').replace(/\s*\([^)]*\)/g, '').trim();
+      const query = `track:"${cleanTitle}" artist:"${song.artist}"`;
       const res = await axios.get('https://api.spotify.com/v1/search', {
         headers: { Authorization: `Bearer ${token}` },
         params: { q: query, type: 'track', limit: 1 }
@@ -509,12 +510,17 @@ export async function searchSpotifyForAiTracks(token, aiSongs = [], excludedArti
       if (!track) {
         const fallbackRes = await axios.get('https://api.spotify.com/v1/search', {
           headers: { Authorization: `Bearer ${token}` },
-          params: { q: `${song.title} ${song.artist}`, type: 'track', limit: 1 }
+          params: { q: `${cleanTitle} ${song.artist}`, type: 'track', limit: 1 }
         });
         track = fallbackRes.data.tracks?.items?.[0];
       }
 
-      if (track && isHighQualityTrack(track, '', excludedArtists)) {
+      if (track && isHighQualityTrack(track, userPrompt, excludedArtists)) {
+        return {
+          ...track,
+          aiReason: song.reason,
+        };
+      } else if (track) {
         return {
           ...track,
           aiReason: song.reason,
@@ -541,7 +547,8 @@ export async function fetchTracks(token, features, source = 'recommended', count
 
     // STRICT QUALITY & ACOUSTIC FEATURE FILTERING: Keep only tracks passing Spotify audio metrics
     const qualityLiked = liked.filter(t => isHighQualityTrack(t, userPrompt, excludedArtists));
-    const acousticallyMatched = await filterAndRankByAcousticVectors(token, qualityLiked, features, userPrompt);
+    const candidates = qualityLiked.length > 0 ? qualityLiked : liked;
+    const acousticallyMatched = await filterAndRankByAcousticVectors(token, candidates, features, userPrompt);
 
     if (acousticallyMatched.length === 0) {
       return { tracks: [], aiMeta: null };
@@ -571,7 +578,7 @@ export async function fetchTracks(token, features, source = 'recommended', count
       });
 
       if (aiResult?.songs && aiResult.songs.length > 0) {
-        const spotifyTracks = await searchSpotifyForAiTracks(token, aiResult.songs, excludedArtists);
+        const spotifyTracks = await searchSpotifyForAiTracks(token, aiResult.songs, excludedArtists, userPrompt);
         const acousticallyVerified = await filterAndRankByAcousticVectors(token, spotifyTracks, features, userPrompt);
         if (acousticallyVerified.length > 0) {
           return {
@@ -646,10 +653,10 @@ export async function fetchTracks(token, features, source = 'recommended', count
     ];
   } else {
     // Global Catalog Search with Targeted Mood Queries
-    const randomOffset = Math.floor(Math.random() * 8);
+    const randomOffset = Math.floor(Math.random() * 6);
     const shuffledSeeds = [...features.seed_artists].sort(() => Math.random() - 0.5);
 
-    const targetQueries = [];
+    const targetQueries = [userPrompt];
     const lowerPrompt = (userPrompt || '').toLowerCase();
     if (lowerPrompt.includes('chikni') || lowerPrompt.includes('fevicol') || lowerPrompt.includes('item song') || lowerPrompt.includes('item songs')) {
       targetQueries.push('Chikni Chameli', 'Fevicol Se', 'Munni Badnaam', 'Sheila Ki Jawani', 'Badtameez Dil');
@@ -664,11 +671,17 @@ export async function fetchTracks(token, features, source = 'recommended', count
       targetQueries.push('Brown Noise Deep Sleep', 'Green Noise Nature', 'River Stream Soundscape');
     }
 
-    const targetedSearchPromises = targetQueries.map(async (q) => {
+    // Add phrase chunks from prompt
+    const promptWords = lowerPrompt.split(/\s+/).filter(w => w.length > 3);
+    if (promptWords.length >= 2) {
+      targetQueries.push(promptWords.slice(0, 2).join(' '), promptWords.slice(-2).join(' '));
+    }
+
+    const targetedSearchPromises = targetQueries.filter(Boolean).slice(0, 5).map(async (q) => {
       try {
         const res = await axios.get('https://api.spotify.com/v1/search', {
           headers: { Authorization: `Bearer ${token}` },
-          params: { q, type: 'track', limit: 6, offset: Math.floor(Math.random() * 3) }
+          params: { q, type: 'track', limit: 8, offset: Math.floor(Math.random() * 2) }
         });
         return res.data.tracks?.items || [];
       } catch { return []; }
@@ -679,7 +692,7 @@ export async function fetchTracks(token, features, source = 'recommended', count
         try {
           const res = await axios.get('https://api.spotify.com/v1/search', {
             headers: { Authorization: `Bearer ${token}` },
-            params: { q: `artist:"${name}"`, type: 'track', limit: 8, offset: randomOffset }
+            params: { q: `"${name}"`, type: 'track', limit: 8, offset: randomOffset }
           });
           return res.data.tracks?.items || [];
         } catch { return []; }
@@ -692,7 +705,7 @@ export async function fetchTracks(token, features, source = 'recommended', count
         try {
           const res = await axios.get('https://api.spotify.com/v1/search', {
             headers: { Authorization: `Bearer ${token}` },
-            params: { q: `genre:${genre}`, type: 'track', limit: 8, offset: randomOffset }
+            params: { q: `${genre} music`, type: 'track', limit: 8, offset: randomOffset }
           });
           return res.data.tracks?.items || [];
         } catch { return []; }
@@ -705,12 +718,21 @@ export async function fetchTracks(token, features, source = 'recommended', count
   }
 
   const seen = new Set();
-  const qualityTracks = tracksPool.filter(t => {
+  let qualityTracks = tracksPool.filter(t => {
     if (!t || !t.id || seen.has(t.id)) return false;
     if (!isHighQualityTrack(t, userPrompt, excludedArtists)) return false;
     seen.add(t.id);
     return true;
   });
+
+  if (qualityTracks.length === 0 && tracksPool.length > 0) {
+    const fallbackSeen = new Set();
+    qualityTracks = tracksPool.filter(t => {
+      if (!t || !t.id || fallbackSeen.has(t.id)) return false;
+      fallbackSeen.add(t.id);
+      return true;
+    });
+  }
 
   // Rank candidate tracks by Spotify Audio Feature Analysis Vectors
   const rankedTracks = await filterAndRankByAcousticVectors(token, qualityTracks, features, userPrompt);
