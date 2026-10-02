@@ -60,7 +60,7 @@ function ApiKeyModal({ isOpen, onClose, onKeySaved }) {
           <a
             href="https://aistudio.google.com/app/apikey"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="get-key-link"
           >
             Get Free Gemini API Key ↗

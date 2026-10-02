@@ -78,7 +78,7 @@ function TrackCard({ track, index, onReroll, onExcludeArtist }) {
             className="spotify-link"
             href={spotifyUrl}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             title="Open in Spotify App"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
